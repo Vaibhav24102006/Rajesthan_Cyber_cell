@@ -5,3 +5,11 @@ pydantic
 pydantic-settings
 python-dotenv
 requests
+spacy
+python-multipart
+paddleocr
+opencv-python
+pymupdf
+pillow
+pytesseract
+numpy

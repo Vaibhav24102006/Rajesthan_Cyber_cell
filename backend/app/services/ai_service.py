@@ -2,10 +2,11 @@ import json
 import logging
 import os
 import re
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import requests
 from dotenv import load_dotenv
+from pydantic import BaseModel, ConfigDict, Field
 
 
 load_dotenv()
@@ -32,7 +33,7 @@ DEFAULT_SUMMARY = "No summary generated"
 
 def _heuristic_fallback(text: str) -> Dict[str, Any]:
     lowered = text.lower()
-    crime_type = "Other"
+    crime_type = "Unknown"
 
     if any(k in lowered for k in ["otp", "upi", "transaction", "account", "money", "rupee", "withdrawn"]):
         crime_type = "Financial Fraud"
@@ -117,19 +118,21 @@ def _normalize_ai_data(ai_data: Any) -> Dict[str, Any]:
     if not isinstance(ai_data, dict):
         ai_data = {}
 
+    # IMPORTANT: deterministic entity fields are NOT accepted from AI.
     normalized: Dict[str, Any] = {
-        "victim_name": _normalize_text_field(ai_data.get("victim_name")),
-        "phone": _normalize_text_field(ai_data.get("phone")),
-        "location": _normalize_text_field(ai_data.get("location")),
-        "amount": _normalize_text_field(ai_data.get("amount")),
-        "transaction_id": _normalize_text_field(ai_data.get("transaction_id")),
-        "account_number": _normalize_text_field(ai_data.get("account_number")),
-        "bank": _normalize_text_field(ai_data.get("bank")),
         "crime_type": _normalize_crime_type(ai_data.get("crime_type")),
         "severity": _normalize_severity(ai_data.get("severity")),
         "summary": _normalize_summary(ai_data.get("summary")),
     }
     return normalized
+
+
+class AIOutputModel(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    crime_type: str = Field(default=DEFAULT_CRIME_TYPE)
+    severity: int = Field(default=DEFAULT_SEVERITY, ge=1, le=10)
+    summary: str = Field(default=DEFAULT_SUMMARY)
 
 
 def _ask_ollama(prompt: str, ollama_url: str, model_name: str) -> str:
@@ -164,13 +167,6 @@ Complaint text:
 
 Return ONLY valid JSON object in this schema:
 {{
-  "victim_name": string|null,
-  "phone": string|null,
-  "location": string|null,
-  "amount": string|null,
-  "transaction_id": string|null,
-  "account_number": string|null,
-  "bank": string|null,
   "crime_type": one of {CRIME_TYPES},
   "severity": integer 1-10,
   "summary": string (max 25 words)
@@ -194,4 +190,6 @@ Do not include markdown or commentary.
             ai_data = _heuristic_fallback(text)
 
     safe_ai_data = _normalize_ai_data(ai_data)
-    return safe_ai_data
+    # Final strict schema validation to avoid returning malformed types.
+    validated = AIOutputModel.model_validate(safe_ai_data)
+    return validated.model_dump()

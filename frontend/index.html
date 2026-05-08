@@ -262,13 +262,13 @@ tbody tr:hover { background: rgba(0,0,0,0.02); }
 .report-section { margin-bottom: 18px; }
 .report-section-title { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); border-bottom: 1px solid var(--accent-light); padding-bottom: 5px; margin-bottom: 10px; }
 .report-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.report-field { }
+.report-field { min-width: 0; }
 .report-field-label { font-size: 10px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 2px; }
 .report-field-value { font-size: 13px; color: var(--text); font-family: 'IBM Plex Mono', monospace; background: var(--bg); padding: 5px 9px; border-radius: 3px; border: 1px solid var(--border); word-break: break-all; }
 .report-field-value.not-provided { color: var(--text3); font-family: 'IBM Plex Sans', sans-serif; font-style: italic; font-size: 12px; }
 .report-narrative { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; font-size: 13px; line-height: 1.75; color: var(--text); }
 .report-footer { margin-top: 28px; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; border-top: 1px solid var(--border); padding-top: 20px; }
-.sign-block { }
+.sign-block { display: block; }
 .sign-label { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 30px; }
 .sign-line { border-bottom: 1px solid var(--text); margin-bottom: 4px; }
 .sign-name { font-size: 11px; color: var(--text2); }
@@ -378,8 +378,24 @@ naam - Rajesh Kumar, phone - 9876543210, Jaipur mein rehta hai"></textarea>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg>
                 Extract &amp; Classify
               </button>
+              <button class="btn-primary" onclick="extractFromDocument()" id="extract-doc-btn" style="background:#2a6b3a;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><path d="M12 18v-6"/><path d="M9 15l3-3 3 3"/></svg>
+                OCR Extract
+              </button>
               <button class="btn-secondary" onclick="loadSample()">Load sample</button>
               <button class="btn-secondary" onclick="clearForm()">Clear</button>
+            </div>
+            <div id="upload-dropzone" style="margin-top:12px;padding:12px;border:1px dashed var(--border-strong);border-radius:8px;background:#fff;">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+                <div style="font-size:12px;color:var(--text2);">
+                  Upload complaint document (JPG/PNG/PDF). Drag and drop or choose file.
+                </div>
+                <input type="file" id="doc-file-input" accept=".jpg,.jpeg,.png,.pdf,.webp,.bmp,.tif,.tiff" />
+              </div>
+              <div id="doc-preview" style="margin-top:10px;display:none;">
+                <img id="doc-preview-img" alt="Document preview" style="max-width:220px;max-height:140px;border:1px solid var(--border);border-radius:6px;display:none;" />
+                <div id="doc-preview-meta" style="font-size:12px;color:var(--text2);"></div>
+              </div>
             </div>
           </div>
         </div>
@@ -502,28 +518,72 @@ naam - Rajesh Kumar, phone - 9876543210, Jaipur mein rehta hai"></textarea>
 
 <script>
 // ── STATE ──────────────────────────────────────────────────────────────────────
-const API_BASE = 'http://localhost:8000';
+const API_BASE_CANDIDATES = ['http://localhost:8000', 'http://127.0.0.1:8001'];
+let API_BASE = API_BASE_CANDIDATES[0];
+let apiBaseResolved = false;
 let db = [];
+let selectedDocumentFile = null;
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 5000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function ensureApiBase() {
+  if (apiBaseResolved) return API_BASE;
+
+  for (const base of API_BASE_CANDIDATES) {
+    try {
+      const healthResp = await fetchWithTimeout(`${base}/health`, {}, 3000);
+      if (!healthResp.ok) continue;
+
+      // Stronger readiness check: /cases must also respond successfully.
+      const casesResp = await fetchWithTimeout(`${base}/cases`, {}, 5000);
+      if (!casesResp.ok) continue;
+
+      API_BASE = base;
+      apiBaseResolved = true;
+      if (base !== API_BASE_CANDIDATES[0]) {
+        showToast(`Using backup backend at ${base}`);
+      }
+      return API_BASE;
+    } catch (_) {
+      // Try next candidate
+    }
+  }
+
+  throw new Error('No healthy backend found on expected ports.');
+}
 
 function normalizeCase(c) {
   return {
     id: `JCC-${String(c.id).padStart(6, '0')}`,
     dbId: c.id,
-    crime: c.crime_type || 'Other',
+    crime: c.crime_type || 'Unknown',
     victim: c.victim_name || '—',
     phone: c.phone || '—',
     location: c.location || '—',
+    district: c.district || '—',
     amount: c.amount || '—',
     txnId: c.transaction_id || '—',
     account: c.account_number || '—',
     bank: c.bank || '—',
+    upiId: c.upi_id || '—',
+    domain: c.domain || '—',
+    ipAddress: c.ip_address || '—',
     severity: c.severity || 1,
-    officer: 'Backend Intake',
-    officerId: '—',
-    status: 'open',
+    officer: c.officer_name || '—',
+    officerId: c.officer_id || '—',
+    status: c.status || 'open',
     date: c.created_at ? String(c.created_at).slice(0, 10) : new Date().toISOString().slice(0, 10),
     raw: c.raw_text || '—',
-    summary: c.summary || 'No summary available.'
+    summary: c.summary || 'No summary generated',
+    confidence_score: c.confidence_score ?? 0
   };
 }
 
@@ -534,16 +594,41 @@ function saveDB() {
 
 async function fetchCases() {
   try {
+    await ensureApiBase();
     const resp = await fetch(`${API_BASE}/cases`);
     if (!resp.ok) throw new Error(`API error ${resp.status}`);
     const data = await resp.json();
     db = Array.isArray(data) ? data.map(normalizeCase) : [];
     saveDB();
     renderLogs(db);
-    renderDashboard();
   } catch (e) {
     console.error(e);
     showToast('Cannot reach backend. Start FastAPI on localhost:8000');
+  }
+}
+
+// ── ANALYTICS (dashboard) ──────────────────────────────────────────────────
+let analyticsSummary = null;
+let analyticsTrends = null;
+let analyticsBanks = [];
+let analyticsDistricts = [];
+
+async function fetchAnalytics() {
+  try {
+    await ensureApiBase();
+    const [s, t, b, d] = await Promise.all([
+      fetch(`${API_BASE}/analytics/summary`).then(r => r.json()),
+      fetch(`${API_BASE}/analytics/trends?days=14`).then(r => r.json()),
+      fetch(`${API_BASE}/analytics/banks`).then(r => r.json()),
+      fetch(`${API_BASE}/analytics/districts`).then(r => r.json()),
+    ]);
+    analyticsSummary = s || null;
+    analyticsTrends = t || null;
+    analyticsBanks = Array.isArray(b) ? b : [];
+    analyticsDistricts = Array.isArray(d) ? d : [];
+    renderDashboard();
+  } catch (e) {
+    console.error(e);
   }
 }
 
@@ -560,7 +645,8 @@ function showPage(name, el) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   el.classList.add('active');
   document.getElementById('page-' + name).classList.add('active');
-  if (name === 'logs' || name === 'dashboard') fetchCases();
+  if (name === 'logs') fetchCases();
+  if (name === 'dashboard') { fetchCases(); fetchAnalytics(); }
 }
 
 // ── SAMPLE DATA ────────────────────────────────────────────────────────────────
@@ -584,7 +670,83 @@ function clearForm() {
   document.getElementById('raw-input').value = '';
   document.getElementById('officer-name').value = '';
   document.getElementById('officer-id').value = '';
+  selectedDocumentFile = null;
+  const docInput = document.getElementById('doc-file-input');
+  if (docInput) docInput.value = '';
+  const preview = document.getElementById('doc-preview');
+  const previewImg = document.getElementById('doc-preview-img');
+  const previewMeta = document.getElementById('doc-preview-meta');
+  if (preview) preview.style.display = 'none';
+  if (previewImg) { previewImg.style.display = 'none'; previewImg.src = ''; }
+  if (previewMeta) previewMeta.textContent = '';
   document.getElementById('extract-body').innerHTML = '<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 17H7A5 5 0 017 7h2"/><path d="M15 7h2a5 5 0 010 10h-2"/><line x1="8" y1="12" x2="16" y2="12"/></svg><p>Enter complaint text and<br/>click Extract &amp; Classify</p></div>';
+}
+
+function handleDocumentSelection(file) {
+  if (!file) return;
+  selectedDocumentFile = file;
+  const preview = document.getElementById('doc-preview');
+  const previewImg = document.getElementById('doc-preview-img');
+  const previewMeta = document.getElementById('doc-preview-meta');
+
+  const isImage = file.type.startsWith('image/');
+  if (preview) preview.style.display = 'block';
+  if (previewMeta) previewMeta.textContent = `${file.name} (${Math.round(file.size / 1024)} KB)`;
+
+  if (isImage && previewImg) {
+    const url = URL.createObjectURL(file);
+    previewImg.src = url;
+    previewImg.style.display = 'block';
+  } else if (previewImg) {
+    previewImg.style.display = 'none';
+    previewImg.src = '';
+  }
+}
+
+async function extractFromDocument() {
+  if (!selectedDocumentFile) {
+    showToast('Please upload a document first.');
+    return;
+  }
+
+  const btn = document.getElementById('extract-doc-btn');
+  const body = document.getElementById('extract-body');
+  btn.disabled = true;
+  btn.innerHTML = `OCR processing...`;
+  body.innerHTML = `
+    <div class="field-row"><div class="field-label">OCR status</div><div class="field-value loading">Reading document...</div></div>
+    <div class="field-row"><div class="field-label">Extraction status</div><div class="field-value loading">Structuring complaint...</div></div>`;
+
+  try {
+    await ensureApiBase();
+    const officerName = document.getElementById('officer-name').value.trim() || '';
+    const officerId = document.getElementById('officer-id').value.trim() || '';
+
+    const formData = new FormData();
+    formData.append('file', selectedDocumentFile);
+    formData.append('officer_name', officerName);
+    formData.append('officer_id', officerId);
+    formData.append('station_name', 'Jaipur Cyber Cell');
+
+    const resp = await fetch(`${API_BASE}/extract/document`, {
+      method: 'POST',
+      body: formData
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+    const p = await resp.json();
+    if (p.raw_text) document.getElementById('raw-input').value = p.raw_text;
+    lastExtracted = { ...p, raw_complaint: document.getElementById('raw-input').value.trim() };
+    renderExtracted(p);
+    await fetchCases();
+  } catch (e) {
+    body.innerHTML = `<div class="alert alert-warn"><span>⚠</span><span>Document OCR extraction failed.<br/><small>${e.message}</small></span></div>`;
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><path d="M12 18v-6"/><path d="M9 15l3-3 3 3"/></svg> OCR Extract`;
 }
 
 // ── AI EXTRACTION ──────────────────────────────────────────────────────────────
@@ -611,10 +773,13 @@ async function extractAndClassify() {
     <div class="field-row"><div class="field-label">Summary</div><div class="field-value loading">Generating...</div></div>`;
 
   try {
+    await ensureApiBase();
+    const officerName = document.getElementById('officer-name').value.trim() || null;
+    const officerId = document.getElementById('officer-id').value.trim() || null;
     const resp = await fetch(`${API_BASE}/extract`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: raw })
+      body: JSON.stringify({ text: raw, officer_name: officerName, officer_id: officerId, station_name: 'Jaipur Cyber Cell' })
     });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
@@ -677,6 +842,14 @@ function renderExtracted(p) {
     <div class="field-label">AI summary <span class="status-tag tag-inferred">generated</span></div>
     <div class="field-value" style="font-family:'IBM Plex Sans',sans-serif;font-size:12px;line-height:1.6;">${p.summary}</div>
   </div>`;
+
+  if (p.ocr_confidence !== null && p.ocr_confidence !== undefined) {
+    const ocrPct = Math.round(Number(p.ocr_confidence) * 100);
+    html += `<div class="field-row animate-in">
+      <div class="field-label">OCR confidence <span class="status-tag tag-inferred">${p.ocr_engine || 'ocr'}</span></div>
+      <div class="field-value" style="font-family:'IBM Plex Mono',monospace;">${ocrPct}%</div>
+    </div>`;
+  }
 
   html += `<div class="action-row animate-in">
     <button class="btn-secondary" onclick="previewReport(null)">Preview report</button>
@@ -802,6 +975,17 @@ function buildReport(c) {
     </div>
 
     <div class="report-section">
+      <div class="report-section-title">Complaint Similarity</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+        ${c.dbId ? `<button class="btn-secondary" onclick="showSimilarCases('${c.dbId}')">Find similar cases</button>` : ''}
+        <span style="font-size:12px;color:var(--text3);">Matches by bank/domain/amount intent.</span>
+      </div>
+      <div id="similar-results-${c.dbId || 'draft'}" class="report-narrative" style="padding:10px 12px;font-size:12px;">
+        ${c.dbId ? 'Click to load similar cases.' : 'Save the case to load similarity results.'}
+      </div>
+    </div>
+
+    <div class="report-section">
       <div class="report-section-title">Original Complaint (Raw Text)</div>
       <div class="report-narrative" style="font-family:'IBM Plex Mono',monospace;font-size:12px;line-height:1.8;color:#5a5750;">${(c.raw || '—').replace(/\n/g,'<br/>')}</div>
     </div>
@@ -836,30 +1020,202 @@ function printReport() { window.print(); }
 
 // ── DASHBOARD ──────────────────────────────────────────────────────────────────
 function renderDashboard() {
-  document.getElementById('d-total').textContent = db.length;
-  document.getElementById('d-open').textContent = db.filter(c => c.status === 'open').length;
-  document.getElementById('d-resolved').textContent = db.filter(c => c.status === 'resolved').length;
-  const total = db.reduce((s, c) => s + (c.amount !== '—' ? parseInt(c.amount) || 0 : 0), 0);
-  document.getElementById('d-amount').textContent = total ? '₹' + total.toLocaleString('en-IN') : '₹0';
+  const s = analyticsSummary || {};
 
-  const counts = {};
-  db.forEach(c => { counts[c.crime] = (counts[c.crime] || 0) + 1; });
-  const sorted = Object.entries(counts).sort((a,b) => b[1]-a[1]);
-  const max = sorted[0]?.[1] || 1;
-  document.getElementById('d-crime-list').innerHTML = sorted.map(([crime, n]) =>
-    `<div style="margin-bottom:10px;">
-      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;"><span>${crime}</span><span class="mono" style="font-weight:600;">${n}</span></div>
-      <div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden;"><div style="height:100%;width:${Math.round(n/max*100)}%;background:var(--accent-mid);border-radius:3px;"></div></div>
-    </div>`).join('');
+  const totalCases = typeof s.total_cases === 'number' ? s.total_cases : db.length;
+  const openCases = typeof s.open_cases === 'number' ? s.open_cases : db.filter(c => c.status === 'open').length;
+  const resolvedCases = typeof s.resolved_cases === 'number' ? s.resolved_cases : db.filter(c => c.status === 'resolved').length;
+  const totalAmount = typeof s.total_amount_at_risk === 'number' ? s.total_amount_at_risk : 0;
+  const highSev = typeof s.high_severity_count === 'number' ? s.high_severity_count : 0;
 
-  document.getElementById('d-recent').innerHTML = db.slice(0,6).map(c =>
-    `<div style="padding:10px 18px;border-bottom:0.5px solid var(--border);display:flex;align-items:center;gap:10px;">
-      <div style="flex:1;min-width:0;">
-        <div style="font-size:12px;font-weight:600;">${c.id} — ${c.crime}</div>
-        <div style="font-size:11px;color:var(--text3);margin-top:1px;">${c.victim} · ${c.date}</div>
+  document.getElementById('d-total').textContent = totalCases;
+  document.getElementById('d-open').textContent = openCases;
+  document.getElementById('d-resolved').textContent = resolvedCases;
+  document.getElementById('d-amount').textContent = totalAmount ? '₹' + Math.round(totalAmount).toLocaleString('en-IN') : '₹0';
+
+  const topCrimes = Array.isArray(s.top_crimes) ? s.top_crimes : [];
+  const crimesSorted = topCrimes.length
+    ? topCrimes
+    : Object.entries(db.reduce((acc, c) => { acc[c.crime] = (acc[c.crime] || 0) + 1; return acc; }, {})).map(([crime, n]) => ({ crime_type: crime, count: n }));
+
+  const max = crimesSorted[0]?.count || 1;
+  document.getElementById('d-crime-list').innerHTML = crimesSorted.map(x => {
+    const crime = x.crime_type || x.crime || 'Unknown';
+    const n = x.count || 0;
+    return `<div style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
+        <span>${crime}</span>
+        <span class="mono" style="font-weight:600;">${n}</span>
       </div>
-      <span class="status-pill s-${c.status}" style="font-size:10px;padding:2px 7px;">${c.status}</span>
-    </div>`).join('');
+      <div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden;">
+        <div style="height:100%;width:${Math.round((n/max)*100)}%;background:var(--accent-mid);border-radius:3px;"></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Trend + quick analytics + NL query
+  const t = analyticsTrends || {};
+  const points = Array.isArray(t.points) ? t.points : [];
+  const w = 220;
+  const h = 44;
+  const maxTotal = Math.max(1, ...points.map(p => p.total || 0));
+  const step = points.length > 1 ? w / (points.length - 1) : w;
+  const poly = points.map((p, i) => {
+    const x = Math.round(i * step);
+    const y = Math.round(h - ((p.total || 0) / maxTotal) * h);
+    return `${x},${y}`;
+  }).join(' ');
+  const trendSvg = points.length
+    ? `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block;margin-top:8px;">
+        <polyline points="${poly}" fill="none" stroke="var(--accent-mid)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>`
+    : '<div style="color:var(--text3);font-size:12px;margin-top:8px;">No trend data yet.</div>';
+
+  const topBanks = Array.isArray(analyticsBanks) ? analyticsBanks.slice(0, 5) : [];
+  const topDistricts = Array.isArray(analyticsDistricts) ? analyticsDistricts.slice(0, 5) : [];
+
+  document.getElementById('d-recent').innerHTML = `
+    <div style="padding:14px 18px;border-bottom:0.5px solid var(--border);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+        <div style="flex:1;">
+          <div style="font-size:12px;font-weight:700;margin-bottom:4px;">Trends (last ${t.days || 14} days)</div>
+          <div style="color:var(--text3);font-size:12px;">High severity cases: <span style="font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--red)">${highSev}</span></div>
+          ${trendSvg}
+        </div>
+      </div>
+    </div>
+    <div style="padding:14px 18px;border-bottom:0.5px solid var(--border);display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div>
+        <div style="font-size:12px;font-weight:700;margin-bottom:6px;">Top banks</div>
+        ${topBanks.length ? topBanks.map(b => `<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin:4px 0;">
+          <span>${b.bank}</span><span class="mono" style="font-weight:700;color:var(--text)">${b.count}</span>
+        </div>`).join('') : '<div style="color:var(--text3);font-size:12px;">No data</div>'}
+      </div>
+      <div>
+        <div style="font-size:12px;font-weight:700;margin-bottom:6px;">Top districts</div>
+        ${topDistricts.length ? topDistricts.map(d => `<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin:4px 0;">
+          <span>${d.district}</span><span class="mono" style="font-weight:700;color:var(--text)">${d.count}</span>
+        </div>`).join('') : '<div style="color:var(--text3);font-size:12px;">No data</div>'}
+      </div>
+    </div>
+    <div style="padding:14px 18px;">
+      <div style="font-size:12px;font-weight:700;margin-bottom:8px;">Investigation search (Natural Language)</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+        <input id="nl-query" class="search-input" type="text" placeholder="e.g. Canara Bank frauds last 7 days" style="width:100%;max-width:520px;"/>
+        <button class="btn-primary" onclick="runNLQuery()" style="padding:9px 14px;">Search</button>
+      </div>
+      <div id="nl-results" style="min-height:40px;"></div>
+    </div>
+  `;
+}
+
+async function runNLQuery() {
+  const qEl = document.getElementById('nl-query');
+  const out = document.getElementById('nl-results');
+  const q = (qEl && qEl.value ? qEl.value : '').trim();
+  if (!q) {
+    out.innerHTML = `<div style="color:var(--amber);font-size:12px;">Enter a query first.</div>`;
+    return;
+  }
+
+  out.innerHTML = `<div style="color:var(--text3);font-size:12px;">Searching...</div>`;
+  try {
+    await ensureApiBase();
+    const resp = await fetch(`${API_BASE}/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: q, limit: 50 })
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+    const data = await resp.json();
+
+    if (data.type === 'district_counts') {
+      const rows = (data.results || []).map(r =>
+        `<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);padding:4px 0;">
+          <span>${r.district || 'Unknown'}</span>
+          <span class="mono" style="font-weight:700;color:var(--text)">${r.count}</span>
+        </div>`
+      ).join('');
+      out.innerHTML = `<div style="font-size:12px;font-weight:700;margin-bottom:8px;">District results</div>${rows || '<div style="color:var(--text3);font-size:12px;">No matches.</div>'}`;
+      return;
+    }
+
+    const results = Array.isArray(data.results) ? data.results : [];
+    if (!results.length) {
+      out.innerHTML = `<div style="color:var(--text3);font-size:12px;">No matching cases found.</div>`;
+      return;
+    }
+
+    out.innerHTML = `
+      <div style="font-size:12px;font-weight:700;margin-bottom:8px;">Top matches</div>
+      <div style="max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:10px;">
+        ${results.slice(0, 10).map(c => {
+          const id = `JCC-${String(c.id).padStart(6,'0')}`;
+          return `<div style="padding:8px 4px;border-bottom:0.5px solid var(--border);display:flex;justify-content:space-between;gap:10px;align-items:center;">
+              <div style="min-width:0;">
+                <div style="font-size:12px;font-weight:700;">${id} — ${c.crime_type || 'Unknown'}</div>
+                <div style="font-size:11px;color:var(--text3);margin-top:2px;">${c.victim_name || '—'} · ${c.date ? String(c.created_at).slice(0,10) : ''}</div>
+              </div>
+              <button class="view-btn" style="white-space:nowrap;" onclick="openCase('${id}')">VIEW</button>
+            </div>`;
+        }).join('')}
+      </div>
+    `;
+  } catch (e) {
+    console.error(e);
+    out.innerHTML = `<div style="color:var(--red);font-size:12px;">Query failed: ${e.message}</div>`;
+  }
+}
+
+async function showSimilarCases(dbId) {
+  const rootId = `similar-results-${dbId}`;
+  const out = document.getElementById(rootId);
+  if (!out) return;
+
+  out.innerHTML = `<div style="color:var(--text3);font-size:12px;">Loading similar cases...</div>`;
+  try {
+    await ensureApiBase();
+    const resp = await fetch(`${API_BASE}/cases/${dbId}/similar?limit=5`);
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+    const data = await resp.json();
+    const results = Array.isArray(data.results) ? data.results : [];
+    if (!results.length) {
+      out.innerHTML = `<div style="color:var(--text3);font-size:12px;">No similar cases found.</div>`;
+      return;
+    }
+
+    out.innerHTML = `
+      <div style="font-size:12px;font-weight:700;margin-bottom:8px;">Top similar matches</div>
+      <div style="display:grid;gap:8px;">
+        ${results.map(r => {
+          const c = r.case || {};
+          const id = `JCC-${String(c.id || r.case_id).padStart(6,'0')}`;
+          return `<div style="border:1px solid var(--border);border-radius:8px;padding:10px;">
+            <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">
+              <div style="min-width:0;">
+                <div style="font-size:12px;font-weight:700;">${id} — ${c.crime_type || 'Unknown'}</div>
+                <div style="font-size:11px;color:var(--text3);margin-top:2px;">${c.victim_name || '—'} · ${c.created_at ? String(c.created_at).slice(0,10) : ''}</div>
+              </div>
+              <span class="status-pill" style="background:var(--accent-light);color:var(--accent);font-size:10px;padding:3px 8px;">Score ${r.similarity_score}</span>
+            </div>
+            <div style="font-size:12px;margin-top:8px;color:var(--text2);line-height:1.5;">${c.summary ? c.summary.slice(0,120) : ''}${c.summary && c.summary.length > 120 ? '...' : ''}</div>
+            <div style="margin-top:8px;">
+              <button class="view-btn" onclick="openCase('${id}')">VIEW</button>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    `;
+  } catch (e) {
+    console.error(e);
+    out.innerHTML = `<div style="color:var(--red);font-size:12px;">Failed to load similar cases: ${e.message}</div>`;
+  }
 }
 
 // ── CSV EXPORT ─────────────────────────────────────────────────────────────────
@@ -886,7 +1242,53 @@ function showToast(msg) {
 const style = document.createElement('style');
 style.textContent = '@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }';
 document.head.appendChild(style);
-fetchCases();
+
+// ── DOCUMENT UPLOAD EVENTS ─────────────────────────────────────────────────────
+const docInput = document.getElementById('doc-file-input');
+if (docInput) {
+  docInput.addEventListener('change', (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (f) handleDocumentSelection(f);
+  });
+}
+
+const dropzone = document.getElementById('upload-dropzone');
+if (dropzone) {
+  ['dragenter', 'dragover'].forEach(evt => {
+    dropzone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropzone.style.borderColor = 'var(--accent-mid)';
+      dropzone.style.background = 'var(--accent-light)';
+    });
+  });
+  ['dragleave', 'drop'].forEach(evt => {
+    dropzone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropzone.style.borderColor = 'var(--border-strong)';
+      dropzone.style.background = '#fff';
+    });
+  });
+  dropzone.addEventListener('drop', (e) => {
+    const files = e.dataTransfer && e.dataTransfer.files;
+    if (files && files.length) handleDocumentSelection(files[0]);
+  });
+}
+
+ensureApiBase()
+  .then(() => fetchCases())
+  .catch((e) => {
+    console.error(e);
+    showToast('No healthy backend found. Start FastAPI on 8000 or 8001.');
+  });
+setInterval(() => {
+  const dash = document.getElementById('page-dashboard');
+  if (dash && dash.classList.contains('active')) {
+    fetchCases();
+    fetchAnalytics();
+  }
+}, 30000);
 </script>
 </body>
 </html>
