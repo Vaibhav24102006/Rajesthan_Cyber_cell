@@ -1,0 +1,2 @@
+ENV C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\backend\storage\paddle_runtime\paddlex C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\backend\storage\paddle_runtime\xdg_cache_home
+imported paddleocr

@@ -1,0 +1,6 @@
+User cache at C:\Users\victus\.cache\paddle is not writable; redirecting HOME/USERPROFILE to C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\backend\storage\paddle_runtime\fake_user_home for this process.
+C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\backend\temp_repro3.py:15: DeprecationWarning: The parameter `use_angle_cls` has been deprecated and will be removed in the future. Please use `use_textline_orientation` instead.
+  ocr = PaddleOCR(use_angle_cls=False, lang='en', enable_mkldnn=False, use_doc_orientation_classify=False, use_doc_unwarping=False)
+[32mCreating model: ('PP-OCRv5_server_det', None, None)[0m
+[32mModel files already exist. Using cached files. To redownload, please delete the directory manually: `C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\backend\storage\paddle_runtime\paddlex\official_models\PP-OCRv5_server_det`.[0m
+EXCEPTION AttributeError("'paddle.base.libpaddle.AnalysisConfig' object has no attribute 'set_optimization_level'")

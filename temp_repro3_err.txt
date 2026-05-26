@@ -1,0 +1,26 @@
+User cache at C:\Users\victus\.cache\paddle is not writable; redirecting HOME/USERPROFILE to C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\backend\storage\paddle_runtime\fake_user_home for this process.
+C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\backend\temp_repro3.py:15: DeprecationWarning: The parameter `use_angle_cls` has been deprecated and will be removed in the future. Please use `use_textline_orientation` instead.
+  ocr = PaddleOCR(use_angle_cls=False, lang='en', enable_mkldnn=False, use_doc_orientation_classify=False, use_doc_unwarping=False)
+[32mCreating model: ('PP-OCRv5_server_det', None, None)[0m
+[32mModel files already exist. Using cached files. To redownload, please delete the directory manually: `C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\backend\storage\paddle_runtime\paddlex\official_models\PP-OCRv5_server_det`.[0m
+Windows fatal exception: access violation
+
+Current thread 0x000062c0 (most recent call first):
+  File "C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\.venv\Lib\site-packages\paddlex\inference\models\runners\paddle_static\runner.py", line 509 in _create
+  File "C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\.venv\Lib\site-packages\paddlex\inference\models\runners\paddle_static\runner.py", line 286 in __init__
+  File "C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\.venv\Lib\site-packages\paddlex\utils\deps.py", line 158 in _wrapper
+  File "C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\.venv\Lib\site-packages\paddlex\inference\models\engines\paddle.py", line 116 in runner_builder
+  File "C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\.venv\Lib\site-packages\paddlex\inference\models\engines\_base.py", line 190 in build_runner
+  File "C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\.venv\Lib\site-packages\paddlex\inference\models\__init__.py", line 312 in _build_predictor_runner
+  File "C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\.venv\Lib\site-packages\paddlex\inference\models\__init__.py", line 339 in _build_predictor_kwargs
+  File "C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\.venv\Lib\site-packages\paddlex\inference\models\__init__.py", line 470 in create_predictor
+  File "C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\.venv\Lib\site-packages\paddlex\inference\pipelines\base.py", line 143 in create_model
+  File "C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\.venv\Lib\site-packages\paddlex\inference\pipelines\ocr\pipeline.py", line 126 in __init__
+  File "C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\.venv\Lib\site-packages\paddlex\inference\pipelines\_parallel.py", line 190 in _create_internal_pipeline
+  File "C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\.venv\Lib\site-packages\paddlex\inference\pipelines\_parallel.py", line 135 in __init__
+  File "C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\.venv\Lib\site-packages\paddlex\utils\deps.py", line 208 in _wrapper
+  File "C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\.venv\Lib\site-packages\paddlex\inference\pipelines\__init__.py", line 169 in create_pipeline
+  File "C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\.venv\Lib\site-packages\paddleocr\_pipelines\base.py", line 105 in _create_paddlex_pipeline
+  File "C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\.venv\Lib\site-packages\paddleocr\_pipelines\base.py", line 67 in __init__
+  File "C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\.venv\Lib\site-packages\paddleocr\_pipelines\ocr.py", line 163 in __init__
+  File "C:\Users\victus\OneDrive\Desktop\Jaipur CyberCell project\backend\temp_repro3.py", line 15 in <module>
